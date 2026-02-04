@@ -5,6 +5,7 @@ from flask import Flask
 from threading import Thread, Timer
 import time
 from pymongo import MongoClient
+import requests
 
 # ==========================================
 # CONFIGURATION & DATABASE CONNECTION
@@ -173,8 +174,7 @@ def clear_backup_logs(message):
         backup_logs.delete_many({"user_id": str(user_id)})
         bot.reply_to(message, "🗑 Your backup logs have been cleared.")
 
-# ==========================================
-# WEB SERVER
+# WEB SERVER & SELF PING
 # ==========================================
 app = Flask('')
 
@@ -185,9 +185,32 @@ def home():
 def run_http():
     app.run(host='0.0.0.0', port=int(os.getenv("PORT", 8080)))
 
+def ping_self():
+    """Bot မအိပ်သွားအောင် 10 မိနစ်တစ်ခါ ကိုယ့် URL ကိုယ်ပြန် Ping မယ့် Function"""
+    while True:
+        time.sleep(600)  # 600 စက္ကန့် (၁၀ မိနစ်) စောင့်မယ်
+        try:
+            # Render ကပေးတဲ့ URL ကို အလိုအလျောက်ယူပါမယ်
+            base_url = os.getenv('RENDER_EXTERNAL_URL') 
+            
+            # အကယ်၍ Render မဟုတ်ဘဲ တခြားနေရာတင်ရင် ကိုယ့် App URL ကို " " ကြားထဲထည့်ပေးပါ
+            if not base_url:
+                base_url = "YOUR_APP_URL_HERE" 
+
+            if base_url and "http" in base_url:
+                r = requests.get(base_url)
+                print(f"🔄 Self Ping Status: {r.status_code}")
+        except Exception as e:
+            print(f"⚠️ Ping Error: {e}")
+
 def keep_alive():
-    t = Thread(target=run_http)
-    t.start()
+    # Server Run ဖို့ Thread
+    t_server = Thread(target=run_http)
+    t_server.start()
+    
+    # Ping လုပ်ဖို့ Thread
+    t_ping = Thread(target=ping_self)
+    t_ping.start()
 
 # ==========================================
 # ADMIN & AUTH COMMANDS (Original Flow)
@@ -379,6 +402,7 @@ if __name__ == "__main__":
     keep_alive()
     print("🤖 Bot Started with MongoDB Support...")
     bot.infinity_polling()
+
 
 
 
