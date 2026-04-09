@@ -276,6 +276,24 @@ def is_authorized(user_id):
         return False # သက်တမ်းကုန်နေရင် ခွင့်မပြုပါ
     return True
 
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
+    user_id = message.from_user.id
+    first_name = message.from_user.first_name
+    
+    welcome_text = f"Hello {first_name}!\n\n"
+    welcome_text += "I am a bot designed to easily copy, manage, and back up files across Telegram Channels and Groups.\n\n"
+    
+    if is_authorized(user_id):
+        welcome_text += "✅You are authorized to use this bot.\n\n"
+        welcome_text += "You can tap the Menu button next to the text input area to explore all available commands.\n"
+        welcome_text += "Powered by @moviesbydatahouse"
+    else:
+        welcome_text += "⚠️ You do not have permission to use this bot yet.\n\n"
+        welcome_text += f"If you would like to get access, please contact the Admin @moviestoreadmin and send them your User ID: {user_id}"
+        
+    bot.reply_to(message, welcome_text, parse_mode="Markdown")
+
 @bot.message_handler(commands=['setchannel'])
 def set_channel(message):
     user_id = message.from_user.id
