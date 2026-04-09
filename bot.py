@@ -281,16 +281,17 @@ def send_welcome(message):
     user_id = message.from_user.id
     first_name = message.from_user.first_name
     
-    welcome_text = f"Hello {first_name}!\n\n"
+    welcome_text = f"Hello, {first_name}!\n\n"
     welcome_text += "I am a bot designed to easily copy, manage, and back up files across Telegram Channels and Groups.\n\n"
     
     if is_authorized(user_id):
         welcome_text += "✅You are authorized to use this bot.\n\n"
-        welcome_text += "You can tap the Menu button next to the text input area to explore all available commands.\n"
+        welcome_text += "You can tap the Menu button next to the text input area to explore all available commands.\n\n"
         welcome_text += "Powered by @moviesbydatahouse"
     else:
         welcome_text += "⚠️ You do not have permission to use this bot yet.\n\n"
-        welcome_text += f"If you would like to get access, please contact the Admin @moviestoreadmin and send them your User ID: {user_id}"
+        welcome_text += f"If you would like to get access, please contact the Admin @moviestoreadmin and send them your User ID: {user_id}\n\n"
+        welcome_text += "Powered by @moviesbydatahouse Myanmar "
         
     bot.reply_to(message, welcome_text, parse_mode="Markdown")
 
@@ -505,12 +506,12 @@ def handle_post_link(message):
 def setup_bot_commands():
     """Bot ရဲ့ Chat ဘေးမှာ Menu (Commands List) ပေါ်အောင် သတ်မှတ်ရန်"""
     commands = [
-        BotCommand("backup", "🔄 ဖိုင်များ အစုလိုက် ကူးယူရန်"),
-        BotCommand("setchannel", "📌 Target Channel ID သတ်မှတ်ရန်"),
-        BotCommand("checkchannel", "📡 လက်ရှိ Target Channel ကို စစ်ဆေးရန်"),
-        BotCommand("setcaption", "✍️ ပုံသေတွဲတင်မည့် စာသား သတ်မှတ်ရန်"),
-        BotCommand("delcaption", "🗑 ပုံသေစာသားကို ဖျက်ရန်"),
-        BotCommand("clearlogs", "🧹 Backup မှတ်တမ်းများကို ဖျက်ရန်")
+        BotCommand("backup", "Channel Backup ပြုလုပ်ရန်"),
+        BotCommand("setchannel", "Target Channel သတ်မှတ်ရန်"),
+        BotCommand("checkchannel", "လက်ရှိ Target Channel စစ်ဆေးရန်"),
+        BotCommand("setcaption", "ပုံသေတွဲတင်မည့် စာသား သတ်မှတ်ရန်"),
+        BotCommand("delcaption", "ပုံသေစာသားကို ဖယ်ရှားရန်),
+        BotCommand("clearlogs", "Backup မှတ်တမ်းများကို ဖျက်ရန်")
     ]
     try:
         bot.set_my_commands(commands)
