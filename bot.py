@@ -289,7 +289,7 @@ def send_welcome(message):
         welcome_text += "You can tap the Menu button next to the text input area to explore all available commands.\n\n"
         welcome_text += "Powered by @moviesbydatahouse"
     else:
-        welcome_text += "⚠️ You do not have permission to use this bot yet.\n\n"
+        welcome_text += "⚠️ You don't have permission to use this bot yet.\n\n"
         welcome_text += f"If you would like to get access, please contact the Admin @moviestoreadmin and send them your User ID: {user_id}\n\n"
         welcome_text += "Powered by @moviesbydatahouse Myanmar "
         
@@ -510,7 +510,7 @@ def setup_bot_commands():
         BotCommand("setchannel", "Target Channel သတ်မှတ်ရန်"),
         BotCommand("checkchannel", "လက်ရှိ Target Channel စစ်ဆေးရန်"),
         BotCommand("setcaption", "ပုံသေတွဲတင်မည့် စာသား သတ်မှတ်ရန်"),
-        BotCommand("delcaption", "ပုံသေစာသားကို ဖယ်ရှားရန်),
+        BotCommand("delcaption", "ပုံသေစာသားကို ဖယ်ရှားရန်"),
         BotCommand("clearlogs", "Backup မှတ်တမ်းများကို ဖျက်ရန်")
     ]
     try:
