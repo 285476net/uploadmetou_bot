@@ -276,24 +276,114 @@ def is_authorized(user_id):
         return False # သက်တမ်းကုန်နေရင် ခွင့်မပြုပါ
     return True
 
+# ==========================================
+# REFERRAL SYSTEM LOGIC
+# ==========================================
+def process_referral(new_user_id, inviter_id, new_user_name):
+    # ၁။ ကိုယ့်ကိုယ်ကိုယ် ပြန်ဖိတ်ခြင်းဖြစ်နေလျှင် ကျော်သွားမည်
+    if new_user_id == inviter_id:
+        return 
+        
+    # ၂။ ဖိတ်ခေါ်သူသည် Bot အသုံးပြုခွင့် မရှိသူဖြစ်နေလျှင် ကျော်သွားမည်
+    if not is_authorized(inviter_id):
+        return
+
+    # ၃။ အသုံးပြုသူအသစ်က Bot ကို သုံးနေပြီးသား (သို့) အရင်က ဖိတ်ခေါ်ခံထားရပြီးသား ဖြစ်နေလျှင် ကျော်သွားမည်
+    new_user_data = get_user_config(new_user_id)
+    if is_authorized(new_user_id) or new_user_data.get('invited_by'):
+        return 
+        
+    # ၄။ အားလုံးမှန်ကန်ပါက Reward (ဆု) များ ပေးပါမည်
+    
+    # (က) အသုံးပြုသူအသစ်ကို ဘယ်သူဖိတ်လိုက်တယ်ဆိုတာ Database တွင် မှတ်သားမည်
+    update_user_setting(new_user_id, "invited_by", inviter_id)
+    
+    # (ခ) ဖိတ်ခေါ်သူ (Inviter) ကို အခမဲ့ ၂ ရက် (2 * 86400 စက္ကန့်) ပေါင်းထည့်ပေးမည်
+    inviter_expiry = authorized_cache.get(inviter_id)
+    if inviter_expiry is not None:
+        new_expiry = inviter_expiry + (1 * 86400) 
+        authorized_cache[inviter_id] = new_expiry
+        config_col.update_one(
+            {"_id": str(ADMIN_ID)}, 
+            {"$set": {f"authorized_users.{inviter_id}": new_expiry}}
+        )
+        # ဖိတ်ခေါ်သူ၏ ဖိတ်ခေါ်နိုင်ခဲ့သော အရေအတွက် (Count) ကို ၁ တိုးမည်
+        config_col.update_one({"_id": str(inviter_id)}, {"$inc": {"referral_count": 1}}, upsert=True)
+        
+        try:
+            bot.send_message(
+                inviter_id, 
+                f"🎉 **ဂုဏ်ယူပါတယ်!**\n\nသင်၏ Invite Link မှတစ်ဆင့် 👤 {new_user_name} က Bot ကို စတင်အသုံးပြုခဲ့တဲ့အတွက် သင့်ကို အခမဲ့ **1 ရက်** အသုံးပြုခွင့် ထပ်ဆောင်းပေးလိုက်ပါတယ်။",
+                parse_mode="Markdown"
+            )
+        except: pass
+            
+    # (ဂ) အသုံးပြုသူအသစ်ကို Welcome Bonus အနေဖြင့် အခမဲ့ ၁ ရက် စမ်းသုံးခွင့်ပေးမည်
+    new_user_expiry = time.time() + (1 * 86400)
+    authorized_cache[new_user_id] = new_user_expiry
+    config_col.update_one(
+        {"_id": str(ADMIN_ID)}, 
+        {"$set": {f"authorized_users.{new_user_id}": new_user_expiry}},
+        upsert=True
+    )
+    try:
+        bot.send_message(
+            new_user_id,
+            "🎁 **Welcome Bonus!**\n\nသူငယ်ချင်း၏ ဖိတ်ခေါ်မှု Invite Link မှ ဝင်ရောက်လာတဲ့အတွက် သင့်ကို အခမဲ့ **၁ ရက်** စမ်းသပ်အသုံးပြုခွင့် လက်ဆောင်ပေးလိုက်ပါတယ်။",
+            parse_mode="Markdown"
+        )
+    except: pass
+
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     user_id = message.from_user.id
     first_name = message.from_user.first_name
     
+    # --- Referral Link မှ ဝင်လာခြင်းရှိမရှိ စစ်ဆေးခြင်း ---
+    parts = message.text.split()
+    if len(parts) > 1 and parts[1].startswith('ref_'):
+        try:
+            inviter_id = int(parts[1].replace('ref_', ''))
+            process_referral(user_id, inviter_id, first_name)
+        except ValueError:
+            pass 
+    # ----------------------------------------------------
+
     welcome_text = f"Hello, {first_name}!\n\n"
     welcome_text += "I am a bot designed to easily copy, manage, and back up files across Telegram Channels and Groups.\n\n"
     
     if is_authorized(user_id):
         welcome_text += "✅You are authorized to use this bot.\n\n"
         welcome_text += "You can tap the Menu button next to the text input area to explore all available commands.\n\n"
-        welcome_text += "Powered by @moviesbydatahouse"
     else:
         welcome_text += "⚠️ You don't have permission to use this bot yet.\n\n"
         welcome_text += f"If you would like to get access, please contact the Admin @moviestoreadmin and send them your User ID: {user_id}\n\n"
-        welcome_text += "Powered by @moviesbydatahouse Myanmar "
+        welcome_text += "Powered by @moviesbydatahouse"
         
     bot.reply_to(message, welcome_text, parse_mode="Markdown")
+
+@bot.message_handler(commands=['invite', 'referral'])
+def send_invite_link(message):
+    user_id = message.from_user.id
+
+    if not is_authorized(user_id):
+        bot.reply_to(message, "⚠️ ဤ Command ကိုအသုံးပြုရန် Bot အသုံးပြုခွင့်ရရှိထားရန် လိုအပ်ပါသည်။")
+        return
+        
+    bot_info = bot.get_me()
+    bot_username = bot_info.username
+    invite_link = f"https://t.me/{bot_username}?start=ref_{user_id}"
+
+    user_data = get_user_config(user_id)
+    ref_count = user_data.get('referral_count', 0)
+    
+    text = (
+        f"🎁 **သူငယ်ချင်းကို ဖိတ်ခေါ်ပြီး အခမဲ့ သုံးခွင့်ရယူပါ**\n\n"
+        f"သင့်ရဲ့ Invite Link ကနေတစ်ဆင့် သူငယ်ချင်းတစ်ယောက် Bot ကို စတင်အသုံးပြုတိုင်း သင့်အတွက် **အခမဲ့ ၁ ရက်** အသုံးပြုခွင့် ရရှိမှာဖြစ်ပါတယ်။ အသစ်ဝင်လာတဲ့ သူငယ်ချင်းအတွက်လည်း Welcome Bonus **၁ ရက်** ရရှိမှာပါ။\n\n"
+        f"🔗 **သင့်ရဲ့ Invite Link:**\n`{invite_link}`\n\n"
+        f"👥 သင်အောင်မြင်စွာ ဖိတ်ခေါ်ထားသူ အရေအတွက်: **{ref_count}** ယောက်"
+    )
+    bot.reply_to(message, text, parse_mode="Markdown")
 
 @bot.message_handler(commands=['setchannel'])
 def set_channel(message):
@@ -511,6 +601,7 @@ def setup_bot_commands():
         BotCommand("checkchannel", "လက်ရှိ Target Channel စစ်ဆေးရန်"),
         BotCommand("setcaption", "ပုံသေတွဲတင်မည့် စာသား သတ်မှတ်ရန်"),
         BotCommand("delcaption", "ပုံသေစာသားကို ဖယ်ရှားရန်"),
+        BotCommand("invite", "သူငယ်ချင်းကို ဖိတ်ခေါ်ြီး အခမဲ့ သုံးခွင့်ရယူရန်"),
         BotCommand("clearlogs", "Backup မှတ်တမ်းများကို ဖျက်ရန်")
     ]
     try:
