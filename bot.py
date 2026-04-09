@@ -276,49 +276,29 @@ def is_authorized(user_id):
         return False # သက်တမ်းကုန်နေရင် ခွင့်မပြုပါ
     return True
 
-# ==========================================
-# REFERRAL SYSTEM LOGIC
+# REFERRAL SYSTEM LOGIC (COIN SYSTEM)
 # ==========================================
 def process_referral(new_user_id, inviter_id, new_user_name):
-    # ၁။ ကိုယ့်ကိုယ်ကိုယ် ပြန်ဖိတ်ခြင်းဖြစ်နေလျှင် ကျော်သွားမည်
-    if new_user_id == inviter_id:
-        return 
-        
-    # ၂။ ဖိတ်ခေါ်သူသည် Bot အသုံးပြုခွင့် မရှိသူဖြစ်နေလျှင် ကျော်သွားမည်
-    if not is_authorized(inviter_id):
-        return
+    if new_user_id == inviter_id: return
+    if not is_authorized(inviter_id): return
 
-    # ၃။ အသုံးပြုသူအသစ်က Bot ကို သုံးနေပြီးသား (သို့) အရင်က ဖိတ်ခေါ်ခံထားရပြီးသား ဖြစ်နေလျှင် ကျော်သွားမည်
     new_user_data = get_user_config(new_user_id)
-    if is_authorized(new_user_id) or new_user_data.get('invited_by'):
-        return 
+    if is_authorized(new_user_id) or new_user_data.get('invited_by'): return 
         
-    # ၄။ အားလုံးမှန်ကန်ပါက Reward (ဆု) များ ပေးပါမည်
-    
-    # (က) အသုံးပြုသူအသစ်ကို ဘယ်သူဖိတ်လိုက်တယ်ဆိုတာ Database တွင် မှတ်သားမည်
+    # (က) ဘယ်သူဖိတ်လိုက်တယ်ဆိုတာ မှတ်မည်
     update_user_setting(new_user_id, "invited_by", inviter_id)
     
-    # (ခ) ဖိတ်ခေါ်သူ (Inviter) ကို အခမဲ့ ၂ ရက် (2 * 86400 စက္ကန့်) ပေါင်းထည့်ပေးမည်
-    inviter_expiry = authorized_cache.get(inviter_id)
-    if inviter_expiry is not None:
-        new_expiry = inviter_expiry + (1 * 86400) 
-        authorized_cache[inviter_id] = new_expiry
-        config_col.update_one(
-            {"_id": str(ADMIN_ID)}, 
-            {"$set": {f"authorized_users.{inviter_id}": new_expiry}}
+    # (ခ) ဖိတ်ခေါ်သူကို ရက်မပေးတော့ဘဲ 10 Coins 🪙 ပေးမည်
+    config_col.update_one({"_id": str(inviter_id)}, {"$inc": {"coins": 10, "referral_count": 1}}, upsert=True)
+    
+    try:
+        bot.send_message(
+            inviter_id, 
+            f"🎉 **ဂုဏ်ယူပါတယ်!**\n\n👤 {new_user_name} က သင့် Link မှတစ်ဆင့် ဝင်ရောက်လာတဲ့အတွက် **10 Coins 🪙** ရရှိပါပြီ။\n(50 Coins ပြည့်တိုင်း ၁ ရက် အခမဲ့သုံးစွဲခွင့်ရရှိပါမည်။)",
+            parse_mode="Markdown"
         )
-        # ဖိတ်ခေါ်သူ၏ ဖိတ်ခေါ်နိုင်ခဲ့သော အရေအတွက် (Count) ကို ၁ တိုးမည်
-        config_col.update_one({"_id": str(inviter_id)}, {"$inc": {"referral_count": 1}}, upsert=True)
-        
-        try:
-            bot.send_message(
-                inviter_id, 
-                f"🎉 **ဂုဏ်ယူပါတယ်!**\n\nသင်၏ Invite Link မှတစ်ဆင့် 👤 {new_user_name} က Bot ကို စတင်အသုံးပြုခဲ့တဲ့အတွက် သင့်ကို အခမဲ့ **1 ရက်** အသုံးပြုခွင့် ထပ်ဆောင်းပေးလိုက်ပါတယ်။",
-                parse_mode="Markdown"
-            )
-        except: pass
+    except: pass
             
-    # (ဂ) အသုံးပြုသူအသစ်ကို Welcome Bonus အနေဖြင့် အခမဲ့ ၁ ရက် စမ်းသုံးခွင့်ပေးမည်
     new_user_expiry = time.time() + (1 * 86400)
     authorized_cache[new_user_id] = new_user_expiry
     config_col.update_one(
@@ -329,7 +309,7 @@ def process_referral(new_user_id, inviter_id, new_user_name):
     try:
         bot.send_message(
             new_user_id,
-            "🎁 **Welcome Bonus!**\n\nသူငယ်ချင်း၏ ဖိတ်ခေါ်မှု Invite Link မှ ဝင်ရောက်လာတဲ့အတွက် သင့်ကို အခမဲ့ **၁ ရက်** စမ်းသပ်အသုံးပြုခွင့် လက်ဆောင်ပေးလိုက်ပါတယ်။",
+            "🎁 **Welcome Bonus!**\n\nသူငယ်ချင်း၏ ဖိတ်ခေါ်မှုဖြင့် ဝင်ရောက်လာတဲ့အတွက် အခမဲ့ **၁ ရက်** စမ်းသပ်အသုံးပြုခွင့် ရရှိပါသည်။ ဆက်လက်အသုံးပြုလိုပါက Admin ထံ ဆက်သွယ်ပါ။",
             parse_mode="Markdown"
         )
     except: pass
@@ -365,25 +345,61 @@ def send_welcome(message):
 @bot.message_handler(commands=['invite', 'referral'])
 def send_invite_link(message):
     user_id = message.from_user.id
-
     if not is_authorized(user_id):
-        bot.reply_to(message, "⚠️ ဤ Command ကိုအသုံးပြုရန် Bot အသုံးပြုခွင့်ရရှိထားရန် လိုအပ်ပါသည်။")
+        bot.reply_to(message, "⚠️ ဤ Command ကိုအသုံးပြုရန် Bot ကို အသုံးပြုခွင့် ရရှိထားရန် လိုအပ်ပါသည်။")
         return
         
     bot_info = bot.get_me()
     bot_username = bot_info.username
     invite_link = f"https://t.me/{bot_username}?start=ref_{user_id}"
-
+    
     user_data = get_user_config(user_id)
     ref_count = user_data.get('referral_count', 0)
+    coins = user_data.get('coins', 0) # လက်ကျန် Coin ကို ဆွဲထုတ်ခြင်း
     
     text = (
-        f"🎁 **သူငယ်ချင်းကို ဖိတ်ခေါ်ပြီး အခမဲ့ သုံးခွင့်ရယူပါ**\n\n"
-        f"သင့်ရဲ့ Invite Link ကနေတစ်ဆင့် သူငယ်ချင်းတစ်ယောက် Bot ကို စတင်အသုံးပြုတိုင်း သင့်အတွက် **အခမဲ့ ၁ ရက်** အသုံးပြုခွင့် ရရှိမှာဖြစ်ပါတယ်။ အသစ်ဝင်လာတဲ့ သူငယ်ချင်းအတွက်လည်း Welcome Bonus **၁ ရက်** ရရှိမှာပါ။\n\n"
+        f"🎁 **သူငယ်ချင်းကို ဖိတ်ခေါ်ပြီး Coins 🪙 စုဆောင်းပါ**\n\n"
+        f"သင့် Link မှတစ်ဆင့် သူငယ်ချင်းတစ်ယောက် ဝင်ရောက်တိုင်း **10 Coins 🪙** ရရှိပါမည်။\n"
+        f"Coins 50 ပြည့်တိုင်း အခမဲ့ ၁ ရက် ပြန်လည်လဲလှယ်နိုင်ပါသည်။ (လဲလှယ်ရန် `/redeem` ကိုနှိပ်ပါ)\n\n"
         f"🔗 **သင့်ရဲ့ Invite Link:**\n`{invite_link}`\n\n"
-        f"👥 သင်အောင်မြင်စွာ ဖိတ်ခေါ်ထားသူ အရေအတွက်: **{ref_count}** ယောက်"
+        f"👥 ဖိတ်ခေါ်ထားသူ: **{ref_count}** ယောက်\n"
+        f"🪙 သင့်လက်ကျန် Coins: **{coins} Coins**"
     )
     bot.reply_to(message, text, parse_mode="Markdown")
+
+@bot.message_handler(commands=['redeem'])
+def redeem_coins(message):
+    user_id = message.from_user.id
+    if not is_authorized(user_id): return
+    
+    user_data = get_user_config(user_id)
+    coins = user_data.get('coins', 0)
+    cost_per_day = 50 # ၁ ရက်စာအတွက် လိုအပ်သော Coin အရေအတွက်
+    
+    if coins < cost_per_day:
+        bot.reply_to(message, f"⚠️ သင့်တွင် Coins အလုံအလောက်မရှိပါ။\n\n၁ ရက် လဲလှယ်ရန် အနည်းဆုံး **{cost_per_day} Coins 🪙** လိုအပ်ပါသည်။\nလက်ကျန်: **{coins} Coins**")
+        return
+        
+    # ဘယ်နှရက် လဲလို့ရမလဲ တွက်ချက်ခြင်း
+    days_to_add = coins // cost_per_day
+    remaining_coins = coins % cost_per_day
+    
+    # Database တွင် Coin လျှော့ခြင်း
+    config_col.update_one({"_id": str(user_id)}, {"$set": {"coins": remaining_coins}})
+    
+    # သက်တမ်းကိုပေါင်းထည့်ခြင်း
+    current_expiry = authorized_cache.get(user_id, time.time())
+    if current_expiry is None or current_expiry < time.time():
+        current_expiry = time.time()
+        
+    new_expiry = current_expiry + (days_to_add * 86400)
+    authorized_cache[user_id] = new_expiry
+    config_col.update_one(
+        {"_id": str(ADMIN_ID)}, 
+        {"$set": {f"authorized_users.{user_id}": new_expiry}}
+    )
+    
+    bot.reply_to(message, f"✅ **အောင်မြင်ပါသည်။**\n\nCoins 🪙 ({days_to_add * cost_per_day}) ကို အသုံးပြုပြီး **{days_to_add} ရက်** စာ သက်တမ်းတိုးလိုက်ပါသည်။\n\n🪙 လက်ကျန် **{remaining_coins} Coins**")
 
 @bot.message_handler(commands=['setchannel'])
 def set_channel(message):
@@ -602,6 +618,7 @@ def setup_bot_commands():
         BotCommand("setcaption", "ပုံသေတွဲတင်မည့် စာသား သတ်မှတ်ရန်"),
         BotCommand("delcaption", "ပုံသေစာသားကို ဖယ်ရှားရန်"),
         BotCommand("invite", "သူငယ်ချင်းကို ဖိတ်ခေါ်ြီး အခမဲ့ သုံးခွင့်ရယူရန်"),
+        BotCommand("redeem", "🪙 Coins များလဲလှယ်ရန်"),
         BotCommand("clearlogs", "Backup မှတ်တမ်းများကို ဖျက်ရန်")
     ]
     try:
