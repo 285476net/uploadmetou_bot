@@ -3,6 +3,7 @@ import os
 import re
 from flask import Flask
 from threading import Thread, Timer
+from telebot.types import BotCommand
 import time
 from pymongo import MongoClient
 import requests
@@ -480,8 +481,28 @@ def handle_post_link(message):
         except Exception as e:
             bot.reply_to(message, f"❌ Error: {e}")
 
+# ==========================================
+# BOT MENU SETUP
+# ==========================================
+def setup_bot_commands():
+    """Bot ရဲ့ Chat ဘေးမှာ Menu (Commands List) ပေါ်အောင် သတ်မှတ်ရန်"""
+    commands = [
+        BotCommand("backup", "🔄 ဖိုင်များ အစုလိုက် ကူးယူရန်"),
+        BotCommand("setchannel", "📌 Target Channel ID သတ်မှတ်ရန်"),
+        BotCommand("checkchannel", "📡 လက်ရှိ Target Channel ကို စစ်ဆေးရန်"),
+        BotCommand("setcaption", "✍️ ပုံသေတွဲတင်မည့် စာသား သတ်မှတ်ရန်"),
+        BotCommand("delcaption", "🗑 ပုံသေစာသားကို ဖျက်ရန်"),
+        BotCommand("clearlogs", "🧹 Backup မှတ်တမ်းများကို ဖျက်ရန်")
+    ]
+    try:
+        bot.set_my_commands(commands)
+        print("✅ Bot menu commands successfully configured.")
+    except Exception as e:
+        print(f"⚠️ Failed to set bot commands: {e}")
+
 if __name__ == "__main__":
-    load_authorized_users() # <--- ဒီနေရာမှာ ခေါ်ပေးပါ
+    load_authorized_users()
+    setup_bot_commands()
     keep_alive()
     print("🤖 Bot Started with MongoDB Support...")
     bot.infinity_polling()
