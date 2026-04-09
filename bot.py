@@ -43,16 +43,24 @@ def get_user_config(user_id):
 def update_user_setting(user_id, field, value):
     config_col.update_one({"_id": str(user_id)}, {"$set": {field: value}}, upsert=True)
 
-# BOT_TOKEN, ADMIN_ID တို့ရှိတဲ့နေရာအနီးမှာ ထည့်ပါ
-authorized_cache = set()
+authorized_cache = {} # Set အစား Dictionary ပြောင်းလိုက်ပါသည်
 
 def load_authorized_users():
     """Bot စတက်ချိန်တွင် Database မှ Authorized Users များကို Cache ထဲသို့ ဆွဲတင်ရန်"""
     global authorized_cache
     admin_cfg = get_user_config(ADMIN_ID)
-    users = admin_cfg.get('authorized_users', [])
-    authorized_cache = set(users)
-    authorized_cache.add(ADMIN_ID) # Admin ကိုပါ ထည့်ထားရန်
+    users = admin_cfg.get('authorized_users', {})
+    
+    # ⚠️ အရင်က List ပုံစံနဲ့ သိမ်းထားတဲ့ Data အဟောင်းတွေရှိခဲ့ရင် Dictionary ပြောင်းပေးမယ့်စနစ်
+    if isinstance(users, list):
+        users_dict = {}
+        for uid in users:
+            users_dict[str(uid)] = None 
+        config_col.update_one({"_id": str(ADMIN_ID)}, {"$set": {"authorized_users": users_dict}})
+        users = users_dict
+
+    authorized_cache = {int(k): v for k, v in users.items()}
+    authorized_cache[ADMIN_ID] = None # Admin ကို အချိန်အကန့်အသတ်မရှိ သတ်မှတ်ရန်
     print(f"✅ Loaded {len(authorized_cache)} authorized users to cache.")
 
 # ==========================================
@@ -203,6 +211,46 @@ def ping_self():
         except Exception as e:
             print(f"⚠️ Ping Error: {e}")
 
+def check_expired_users():
+    """အချိန်ပြည့်သွားသော User များကို အလိုအလျောက် Unauth လုပ်ပြီး Message ပို့ရန်"""
+    while True:
+        time.sleep(60) # ၆၀ စက္ကန့် (၁ မိနစ်) တစ်ခါ စစ်ပါမယ်
+        current_time = time.time()
+        expired_users = []
+        
+        for uid, expiry in list(authorized_cache.items()):
+            if expiry is not None and current_time > expiry:
+                expired_users.append(uid)
+        
+        for uid in expired_users:
+            # Cache ထဲမှ ဖယ်ထုတ်ရန်
+            del authorized_cache[uid]
+            
+            # Database မှ ဖယ်ထုတ်ရန်
+            config_col.update_one(
+                {"_id": str(ADMIN_ID)}, 
+                {"$unset": {f"authorized_users.{uid}": ""}}
+            )
+            
+            # User ထံသို့ သက်တမ်းကုန်ကြောင်း Message ပို့ရန်
+            try:
+                bot.send_message(
+                    uid, 
+                    "⚠️ **အသိပေးချက်**\n\nသင်၏ Bot အသုံးပြုခွင့် သက်တမ်းကုန်ဆုံးသွားပါပြီ။ ထပ်မံအသုံးပြုလိုပါက Admin @moviestoreadmin ထံ ဆက်သွယ်ပါ။", 
+                    parse_mode="Markdown"
+                )
+            except Exception as e:
+                print(f"Failed to send expiry msg to {uid}: {e}")
+            
+            # Admin ထံသို့ Report ပို့ရန်
+            try:
+                bot.send_message(
+                    ADMIN_ID, 
+                    f"🔄 User ID `{uid}` ရဲ့ သက်တမ်းကုန်သွားတဲ့အတွက် Auto Unauth လုပ်လိုက်ပါပြီ။"
+                )
+            except:
+                pass
+
 def keep_alive():
     # Server Run ဖို့ Thread
     t_server = Thread(target=run_http)
@@ -211,13 +259,21 @@ def keep_alive():
     # Ping လုပ်ဖို့ Thread
     t_ping = Thread(target=ping_self)
     t_ping.start()
-
+    
+    # Expiry Check လုပ်ဖို့ Thread (ယခုအသစ်ထည့်ထားသောစနစ်)
+    t_expiry = Thread(target=check_expired_users)
+    t_expiry.start()
 # ==========================================
 # ADMIN & AUTH COMMANDS (Original Flow)
 # ==========================================
 
 def is_authorized(user_id):
-    return user_id in authorized_cache
+    if user_id not in authorized_cache:
+        return False
+    expiry = authorized_cache[user_id]
+    if expiry is not None and time.time() > expiry:
+        return False # သက်တမ်းကုန်နေရင် ခွင့်မပြုပါ
+    return True
 
 @bot.message_handler(commands=['setchannel'])
 def set_channel(message):
@@ -258,15 +314,27 @@ def check_channel(message):
 def add_user(message):
     if message.from_user.id != ADMIN_ID: return
     try:
-        new_user_id = int(message.text.split()[1])
-        config_col.update_one({"_id": str(ADMIN_ID)}, {"$addToSet": {"authorized_users": new_user_id}}, upsert=True)
+        parts = message.text.split()
+        new_user_id = int(parts[1])
+        # ရက်အရေအတွက် မထည့်ရင် ပုံသေ ၃၀ ရက် သတ်မှတ်မယ်
+        days = float(parts[2]) if len(parts) > 2 else 30.0 
+        
+        # သက်တမ်းကုန်မည့် အချိန်ကို တွက်ချက်ခြင်း (၁ ရက် = ၈၆၄၀၀ စက္ကန့်)
+        expiry_time = time.time() + (days * 86400)
+        
+        # Database ထဲသို့ ထည့်ရန်
+        config_col.update_one(
+            {"_id": str(ADMIN_ID)}, 
+            {"$set": {f"authorized_users.{new_user_id}": expiry_time}}, 
+            upsert=True
+        )
 
         # Cache ထဲသို့ အသစ်ထည့်ရန်
-        authorized_cache.add(new_user_id) 
+        authorized_cache[new_user_id] = expiry_time 
 
-        bot.reply_to(message, f"✅ User ID `{new_user_id}` added and cache updated.")
-    except:
-        bot.reply_to(message, "⚠️ Usage: `/auth 123456789`")
+        bot.reply_to(message, f"✅ User ID `{new_user_id}` ကို {days} ရက် အသုံးပြုခွင့်ပေးလိုက်ပါပြီ။")
+    except Exception as e:
+        bot.reply_to(message, "⚠️ Usage: `/auth [UserID] [Days]`\nExample: `/auth 123456789 7`")
 
 @bot.message_handler(commands=['unauth'])
 def remove_user(message):
@@ -274,14 +342,20 @@ def remove_user(message):
     try:
         target_id = int(message.text.split()[1])
         if target_id == ADMIN_ID: return
-        config_col.update_one({"_id": str(ADMIN_ID)}, {"$pull": {"authorized_users": target_id}})
+        
+        # Database မှ ဖယ်ထုတ်ရန်
+        config_col.update_one(
+            {"_id": str(ADMIN_ID)}, 
+            {"$unset": {f"authorized_users.{target_id}": ""}}
+        )
 
         # Cache ထဲမှ ဖယ်ထုတ်ရန်
-        authorized_cache.discard(target_id) 
+        if target_id in authorized_cache:
+            del authorized_cache[target_id]
 
-        bot.reply_to(message, f"🗑 User ID `{target_id}` removed and cache updated.")
+        bot.reply_to(message, f"🗑 User ID `{target_id}` ရဲ့ အသုံးပြုခွင့်ကို ရပ်ဆိုင်းလိုက်ပါပြီ။")
     except:
-        bot.reply_to(message, "Error.")
+        bot.reply_to(message, "⚠️ Usage: `/unauth [UserID]`")
 
 @bot.message_handler(commands=['setcaption'])
 def set_custom_caption_text(message):
@@ -304,16 +378,25 @@ def delete_custom_caption_text(message):
 @bot.message_handler(commands=['users'])
 def list_authorized_users(message):
     if message.from_user.id != ADMIN_ID: return
-    admin_cfg = get_user_config(ADMIN_ID)
-    user_list = admin_cfg.get('authorized_users', [])
-    text = f"👥 **Authorized Users Total: {len(user_list)}**\n"
+    
+    text = f"👥 **Authorized Users Total: {len(authorized_cache) - 1}**\n" # Admin ကို နှုတ်ထားသည်
     text += "━━━━━━━━━━━━━━━━\n"
-    for uid in user_list:
+    current_time = time.time()
+    
+    for uid, expiry in authorized_cache.items():
+        if uid == ADMIN_ID: continue
+        
+        time_left_str = "Unlimited"
+        if expiry is not None:
+            days_left = max(0, (expiry - current_time) / 86400)
+            time_left_str = f"{days_left:.1f} Days Left"
+            
         try:
             user = bot.get_chat(uid)
-            text += f"👤 {user.first_name}\n🆔 `{uid}`\n\n"
+            text += f"👤 {user.first_name}\n🆔 `{uid}`\n⏳ {time_left_str}\n\n"
         except:
-            text += f"👤 Unknown User\n🆔 `{uid}`\n\n"
+            text += f"👤 Unknown User\n🆔 `{uid}`\n⏳ {time_left_str}\n\n"
+            
     bot.reply_to(message, text, parse_mode="Markdown")
 
 # ==========================================
