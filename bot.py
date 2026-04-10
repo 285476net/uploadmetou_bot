@@ -415,7 +415,6 @@ def redeem_coins(message):
         current_expiry = time.time()
         
     new_expiry = current_expiry + (days_to_add * 86400)
-    authorized_cache[user_id] = new_expiry
     config_col.update_one(
         {"_id": str(ADMIN_ID)}, 
         {"$set": {f"authorized_users.{user_id}": new_expiry}}
@@ -631,8 +630,9 @@ def remove_user(message):
         )
 
         # Cache ထဲမှ ဖယ်ထုတ်ရန်
-        if target_id in authorized_cache:
-            del authorized_cache[target_id]
+        with cache_lock: # 👈 ဒီ Lock ထည့်ပေးပါ
+            if target_id in authorized_cache:
+                del authorized_cache[target_id]
 
         bot.reply_to(message, f"🗑 User ID `{target_id}` ရဲ့ အသုံးပြုခွင့်ကို ရပ်ဆိုင်းလိုက်ပါပြီ။")
     except:
@@ -681,11 +681,18 @@ def delete_custom_caption_text(message):
 def list_authorized_users(message):
     if message.from_user.id != ADMIN_ID: return
     
-    text = f"👥 **Authorized Users Total: {len(authorized_cache) - 1}**\n" # Admin ကို နှုတ်ထားသည်
+    # ၁။ Lock ခံပြီး လက်ရှိ Cache ထဲက Data တွေကို Snapshot ရယူမယ်
+    with cache_lock:
+        current_users = dict(authorized_cache) 
+    
+    # ၂။ အောက်က အလုပ်တွေအားလုံးကို Snapshot (current_users) နဲ့ပဲ လုပ်တော့မယ်
+    total_users = len(current_users) - 1
+    text = f"👥 **Authorized Users Total: {total_users}**\n"
     text += "━━━━━━━━━━━━━━━━\n"
     current_time = time.time()
     
-    for uid, expiry in authorized_cache.items():
+    # ⚠️ အရေးကြီး - ဒီနေရာမှာ current_users.items() ကိုပဲ သုံးရပါမယ်
+    for uid, expiry in current_users.items():
         if uid == ADMIN_ID: continue
         
         time_left_str = "Unlimited"
@@ -694,6 +701,7 @@ def list_authorized_users(message):
             time_left_str = f"{days_left:.1f} Days Left"
             
         try:
+            # User တစ်ယောက်ချင်းစီရဲ့ နာမည်ကို Telegram API ကနေ လှမ်းယူမယ်
             user = bot.get_chat(uid)
             text += f"👤 {user.first_name}\n🆔 `{uid}`\n⏳ {time_left_str}\n\n"
         except:
