@@ -401,6 +401,63 @@ def redeem_coins(message):
     
     bot.reply_to(message, f"✅ **အောင်မြင်ပါသည်။**\n\nCoins 🪙 ({days_to_add * cost_per_day}) ကို အသုံးပြုပြီး **{days_to_add} ရက်** စာ သက်တမ်းတိုးလိုက်ပါသည်။\n\n🪙 လက်ကျန် **{remaining_coins} Coins**")
 
+# ==========================================
+# ADMIN BROADCAST SYSTEM (ALL MEDIA SUPPORTED)
+# ==========================================
+
+@bot.message_handler(commands=['broadcast'])
+def broadcast_command(message):
+    if message.from_user.id != ADMIN_ID: return
+    
+    msg = bot.reply_to(
+        message, 
+        "📢 **Broadcast စနစ်**\n\nပေးပို့လိုသော စာသား၊ ပုံ၊ ဗီဒီယို (သို့) ဖိုင်ကို ယခုပေးပို့ပါ။\n(ပေးပို့ခြင်းကို ရပ်ဆိုင်းလိုပါက `/cancel` ဟု ရိုက်ထည့်ပါ။)", 
+        parse_mode="Markdown"
+    )
+    bot.register_next_step_handler(msg, process_broadcast)
+
+def process_broadcast(message):
+    if message.content_type == 'text' and message.text.lower() == '/cancel':
+        bot.reply_to(message, "❌ Broadcast ပေးပို့ခြင်းကို ရပ်ဆိုင်းလိုက်ပါသည်။")
+        return
+
+    bot.reply_to(message, "🚀 Broadcast စတင်ပေးပို့နေပါပြီ။ ပြီးဆုံးပါက အကြောင်းကြားပေးပါမည်...")
+    Thread(target=execute_broadcast, args=(message,)).start()
+
+def execute_broadcast(broadcast_msg):
+    admin_cfg = get_user_config(ADMIN_ID)
+    users_dict = admin_cfg.get('authorized_users', {})
+    
+    user_ids = list(users_dict.keys())
+    if str(ADMIN_ID) not in user_ids:
+        user_ids.append(str(ADMIN_ID))
+
+    success = 0
+    failed = 0
+
+    for uid_str in set(user_ids):
+        try:
+            uid = int(uid_str)
+            bot.copy_message(
+                chat_id=uid, 
+                from_chat_id=broadcast_msg.chat.id, 
+                message_id=broadcast_msg.message_id
+            )
+            success += 1
+            time.sleep(0.05) 
+        except Exception as e:
+            failed += 1
+
+    # ပေးပို့မှု ပြီးစီးကြောင်း Admin ထံ Report ပြန်ပို့မည်
+    final_report = (
+        f"📊 **Broadcast ပေးပို့မှု ပြီးဆုံးပါပြီ**\n\n"
+        f"✅ အောင်မြင်စွာ လက်ခံရရှိသူ: **{success}** ယောက်\n"
+        f"❌ မအောင်မြင်သူ (Bot ကို Block ထားသူများ): **{failed}** ယောက်"
+    )
+    try:
+        bot.send_message(ADMIN_ID, final_report, parse_mode="Markdown")
+    except: pass
+
 @bot.message_handler(commands=['setchannel'])
 def set_channel(message):
     user_id = message.from_user.id
