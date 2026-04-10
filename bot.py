@@ -4,6 +4,7 @@ import re
 from flask import Flask
 from threading import Thread, Timer
 from telebot.types import BotCommand
+from telebot.types import BotCommand, InlineKeyboardMarkup, InlineKeyboardButton
 import time
 from pymongo import MongoClient
 import requests
@@ -27,20 +28,29 @@ bot = telebot.TeleBot(BOT_TOKEN)
 # ==========================================
 
 def get_user_config(user_id):
-    """User တစ်ဦးချင်းစီအတွက် Setting ခွဲထုတ်ရန်"""
+    """User တစ်ဦးချင်းစီအတွက် Setting ခွဲထုတ်ရန် (Multi-Channel Support)"""
     data = config_col.find_one({"_id": str(user_id)})
     if not data:
-        default_channel = os.getenv('TARGET_CHANNEL_ID')
         new_data = {
             "_id": str(user_id),
-            "channel_id": default_channel,
+            "channels": {}, # Dictionary အနေဖြင့် သိမ်းပါမည်
             "authorized_users": [ADMIN_ID],
-            "custom_caption": None
         }
         config_col.insert_one(new_data)
         return new_data
-    return data
+    
+    # ⚠️ အရင်က channel_id တစ်ခုတည်းသိမ်းခဲ့တဲ့ User ဟောင်းတွေအတွက် Auto ပြောင်းပေးမယ့်စနစ်
+    if "channels" not in data:
+        old_channel = data.get("channel_id")
+        old_caption = data.get("custom_caption", "")
+        channels_dict = {}
+        if old_channel:
+            channels_dict[old_channel] = {"name": "My Channel", "caption": old_caption}
+        config_col.update_one({"_id": str(user_id)}, {"$set": {"channels": channels_dict}})
+        data["channels"] = channels_dict
 
+    return data
+    
 def update_user_setting(user_id, field, value):
     config_col.update_one({"_id": str(user_id)}, {"$set": {field: value}}, upsert=True)
 
@@ -469,7 +479,7 @@ def show_user_profile(message):
     user_data = get_user_config(user_id)
     ref_count = user_data.get('referral_count', 0)
     coins = user_data.get('coins', 0)
-    channel_id = user_data.get('channel_id', 'မသတ်မှတ်ရသေးပါ')
+    channels_count = len(user_data.get('channels', {}))
 
     # Status နှင့် ကျန်ရှိသက်တမ်းကို တွက်ချက်ခြင်း
     status_text = "❌ အသုံးပြုခွင့် မရှိပါ"
@@ -514,37 +524,57 @@ def show_user_profile(message):
 def set_channel(message):
     user_id = message.from_user.id
     if not is_authorized(user_id): return
-    try:
-        parts = message.text.split()
-        if len(parts) == 2:
-            new_id = parts[1]
-            update_user_setting(user_id, "channel_id", new_id)
-            bot.reply_to(message, f"✅ Target Channel changed to `{new_id}`")
+    parts = message.text.split(maxsplit=2)
+    if len(parts) >= 3:
+        channel_id = parts[1]
+        channel_name = parts[2]
+        
+        cfg = get_user_config(user_id)
+        channels = cfg.get('channels', {})
+        # Channel အသစ်ထည့်မည် (Caption အလွတ်ဖြင့်)
+        channels[channel_id] = {"name": channel_name, "caption": ""}
+        update_user_setting(user_id, "channels", channels)
+        
+        bot.reply_to(message, f"✅ Target Channel အသစ်ထည့်သွင်းပြီးပါပြီ။\n\n🆔 ID: `{channel_id}`\n📛 Name: {channel_name}")
+    else:
+        bot.reply_to(message, "⚠️ အသုံးပြုနည်း မှားယွင်းနေပါသည်။\n\nUsage: `/setchannel [Channel ID] [Channel Name]`\nExample: `/setchannel -100123456789 Action Movies`")
+
+@bot.message_handler(commands=['delchannel'])
+def del_channel(message):
+    user_id = message.from_user.id
+    if not is_authorized(user_id): return
+    parts = message.text.split()
+    if len(parts) == 2:
+        channel_id = parts[1]
+        cfg = get_user_config(user_id)
+        channels = cfg.get('channels', {})
+        if channel_id in channels:
+            del channels[channel_id]
+            update_user_setting(user_id, "channels", channels)
+            bot.reply_to(message, f"🗑 Channel `{channel_id}` ကို ဖယ်ရှားလိုက်ပါပြီ။")
         else:
-            bot.reply_to(message, "⚠️ Usage: `/setchannel -100xxxxxxx`")
-    except Exception as e:
-        bot.reply_to(message, f"❌ Error: {e}")
+            bot.reply_to(message, "⚠️ ထို Channel ID ကို ထည့်သွင်းထားခြင်း မရှိပါ။")
+    else:
+        bot.reply_to(message, "⚠️ Usage: `/delchannel [Channel ID]`")
 
 @bot.message_handler(commands=['checkchannel'])
 def check_channel(message):
     user_id = message.from_user.id
     if not is_authorized(user_id): return
     cfg = get_user_config(user_id)
-    channel_id = cfg.get('channel_id')
-    try:
-        chat = bot.get_chat(channel_id)
-        chat_title = chat.title
-        link = f"https://t.me/c/{str(channel_id).replace('-100', '')}/1" if not chat.username else f"https://t.me/{chat.username}"
-        text = (
-            f"📡 **Target Channel Info**\n"
-            f"📛 Name: **{chat_title}**\n"
-            f"🆔 ID: `{channel_id}`\n"
-            f"🔗 Link: [Click Here]({link})"
-        )
-    except:
-        text = f"📡 **Current ID:** `{channel_id}`\n❌ Channel Error."
+    channels = cfg.get('channels', {})
+    
+    if not channels:
+        bot.reply_to(message, "⚠️ မည်သည့် Target Channel မှ ထည့်သွင်းထားခြင်း မရှိသေးပါ။")
+        return
+        
+    text = "📡 **သင်၏ Target Channels များ**\n━━━━━━━━━━━━━━━━\n"
+    for ch_id, ch_data in channels.items():
+        cap_status = "✅ ရှိသည်" if ch_data.get('caption') else "❌ မရှိပါ"
+        text += f"📛 **{ch_data.get('name', 'Unknown')}**\n🆔 `{ch_id}`\n📝 Caption: {cap_status}\n\n"
+        
     bot.reply_to(message, text, parse_mode="Markdown")
-
+    
 @bot.message_handler(commands=['auth'])
 def add_user(message):
     if message.from_user.id != ADMIN_ID: return
@@ -596,19 +626,40 @@ def remove_user(message):
 def set_custom_caption_text(message):
     user_id = message.from_user.id
     if not is_authorized(user_id): return
-    try:
-        caption_text = message.text.split(maxsplit=1)[1]
-        update_user_setting(user_id, "custom_caption", caption_text)
-        bot.reply_to(message, f"✅ ပုံသေစာသား သတ်မှတ်ပြီးပါပြီ:\n\n`{caption_text}`")
-    except:
-        bot.reply_to(message, "⚠️ Usage: `/setcaption Your Text`")
+    parts = message.text.split(maxsplit=2)
+    if len(parts) >= 3:
+        channel_id = parts[1]
+        caption_text = parts[2]
+        
+        cfg = get_user_config(user_id)
+        channels = cfg.get('channels', {})
+        
+        if channel_id in channels:
+            channels[channel_id]['caption'] = caption_text
+            update_user_setting(user_id, "channels", channels)
+            bot.reply_to(message, f"✅ Channel `{channel_id}` အတွက် ပုံသေစာသား သတ်မှတ်ပြီးပါပြီ:\n\n`{caption_text}`")
+        else:
+            bot.reply_to(message, "⚠️ ထို Channel အား ထည့်သွင်းထားခြင်း မရှိပါ။ `/setchannel` ကို အရင်အသုံးပြုပါ။")
+    else:
+        bot.reply_to(message, "⚠️ Usage: `/setcaption [Channel ID] [Your Text]`\nExample: `/setcaption -100123456789 Join our main channel!`")
 
 @bot.message_handler(commands=['delcaption'])
 def delete_custom_caption_text(message):
     user_id = message.from_user.id
     if not is_authorized(user_id): return
-    update_user_setting(user_id, "custom_caption", None)
-    bot.reply_to(message, "🗑 ပုံသေစာသားကို ဖျက်လိုက်ပါပြီ။")
+    parts = message.text.split()
+    if len(parts) == 2:
+        channel_id = parts[1]
+        cfg = get_user_config(user_id)
+        channels = cfg.get('channels', {})
+        if channel_id in channels:
+            channels[channel_id]['caption'] = ""
+            update_user_setting(user_id, "channels", channels)
+            bot.reply_to(message, f"🗑 Channel `{channel_id}` ၏ ပုံသေစာသားကို ဖျက်လိုက်ပါပြီ။")
+        else:
+            bot.reply_to(message, "⚠️ ထို Channel အား ထည့်သွင်းထားခြင်း မရှိပါ။")
+    else:
+         bot.reply_to(message, "⚠️ Usage: `/delcaption [Channel ID]`")
 
 @bot.message_handler(commands=['users'])
 def list_authorized_users(message):
@@ -639,29 +690,44 @@ def list_authorized_users(message):
 # ==========================================
 pending_files = {}
 batch_data = {} 
+pending_sends = {}
+
+def ask_for_channel_selection(chat_id, user_id, messages, user_custom_text=None):
+    """Button များထုတ်ပေးပြီး မည်သည့် Channel ကို ပို့မည်လဲ မေးသော Function"""
+    cfg = get_user_config(user_id)
+    channels = cfg.get('channels', {})
+
+    if not channels:
+        bot.send_message(chat_id, "⚠️ Target Channel မသတ်မှတ်ရသေးပါ။ `/setchannel` ဖြင့် အရင်သတ်မှတ်ပါ။")
+        return
+
+    # User Button နှိပ်ချိန်တွင် ပို့နိုင်ရန် Temporary သိမ်းထားမည်
+    pending_sends[chat_id] = {
+        'messages': messages,
+        'user_text': user_custom_text # Single file မှာ User ရိုက်ထည့်လိုက်တဲ့ စာသား
+    }
+
+    markup = InlineKeyboardMarkup(row_width=1)
+    for ch_id, ch_data in channels.items():
+        btn = InlineKeyboardButton(text=f"ပို့မည် ➡️ {ch_data.get('name', 'Unknown')}", callback_data=f"sendto_{ch_id}")
+        markup.add(btn)
+
+    bot.send_message(chat_id, "📌 ကျေးဇူးပြု၍ ပေးပို့လိုသော Channel ကို ရွေးချယ်ပါ:", reply_markup=markup)
 
 def process_batch(chat_id, user_id):
     if chat_id not in batch_data: return
     messages = batch_data[chat_id]['messages']
-    cfg = get_user_config(user_id)
-    target_channel = cfg.get('channel_id')
 
     if len(messages) > 1:
-        bot.send_message(chat_id, f"✅ {len(messages)} ကား လက်ခံရရှိသည်။ Channel သို့ ပို့နေပါပြီ...")
-        for msg in messages:
-            try:
-                original_caption = msg.caption if msg.caption else ""
-                custom_txt = cfg.get('custom_caption', "")
-                final_caption = f"{original_caption}\n\n{custom_txt}"[:1024] if custom_txt else original_caption[:1024]
-                bot.copy_message(chat_id=target_channel, from_chat_id=chat_id, message_id=msg.message_id, caption=final_caption)
-                time.sleep(3)
-            except: pass
-        bot.send_message(chat_id, "📊 Batch ပို့ဆောင်မှု ပြီးဆုံးပါပြီ။")
+        # Group လိုက်ပို့ခြင်းဖြစ်လျှင် Button တန်းပြမည်
+        bot.send_message(chat_id, f"✅ ဖိုင် ({len(messages)}) ခု လက်ခံရရှိသည်။")
+        ask_for_channel_selection(chat_id, user_id, messages)
     
     elif len(messages) == 1:
+        # တစ်ကားတည်းဆိုလျှင် Caption အရင်တောင်းမည်
         msg = messages[0]
-        pending_files[chat_id] = {'message_id': msg.message_id, 'from_chat_id': chat_id, 'user_id': user_id}
-        bot.reply_to(msg, "✏️ **ဒီကားအတွက် Caption ရေးပို့ပေးပါ...**")
+        pending_files[chat_id] = {'message': msg, 'user_id': user_id}
+        bot.reply_to(msg, "✏️ **ဒီကားအတွက် Caption ရေးပို့ပေးပါ။**\n(စာမရေးလိုပါက 'x' ဟု ရိုက်ထည့်ပါ။)")
 
     if chat_id in batch_data: del batch_data[chat_id]
 
@@ -670,20 +736,72 @@ def receive_caption(message):
     user_id = message.from_user.id
     if not is_authorized(user_id): return
     chat_id = message.chat.id
+    
     file_info = pending_files.get(chat_id)
     if not file_info: return
     
-    cfg = get_user_config(user_id)
-    target_channel = cfg.get('channel_id')
-    custom_txt = cfg.get('custom_caption')
-    final_caption = f"{message.text}\n\n{custom_txt}"[:1024] if custom_txt else message.text[:1024]
-
-    try:
-        bot.copy_message(chat_id=target_channel, from_chat_id=file_info['from_chat_id'], message_id=file_info['message_id'], caption=final_caption)
-        bot.reply_to(message, "✅ Channel သို့ ပို့ပြီးပါပြီ။")
-    except Exception as e:
-        bot.reply_to(message, f"❌ Error: {e}")
+    user_text = message.text
+    if user_text.lower() == 'x':
+        user_text = "" # x ဟုရိုက်လျှင် Caption မပါဘဲ ပို့မည်
+        
+    msg_obj = file_info['message']
+    
     del pending_files[chat_id]
+    # Caption ရပြီဖြစ်သဖြင့် မည်သည့် Channel သို့ပို့မည်ကို Button ပြမည်
+    ask_for_channel_selection(chat_id, user_id, [msg_obj], user_custom_text=user_text)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith('sendto_'))
+def handle_channel_selection(call):
+    chat_id = call.message.chat.id
+    user_id = call.from_user.id
+    target_channel_id = call.data.split('sendto_')[1]
+
+    if chat_id not in pending_sends:
+        bot.answer_callback_query(call.id, "⚠️ သက်တမ်းကုန်သွားသော Action ဖြစ်ပါသည်။ ဖိုင်များပြန်လည်ပေးပို့ပါ။", show_alert=True)
+        return
+
+    data = pending_sends[chat_id]
+    messages = data['messages']
+    user_text = data['user_text']
+
+    cfg = get_user_config(user_id)
+    channels = cfg.get('channels', {})
+    
+    if target_channel_id not in channels:
+        bot.answer_callback_query(call.id, "⚠️ ဤ Channel ကို ဖယ်ရှားလိုက်ပြီဖြစ်ပါသည်။", show_alert=True)
+        return
+        
+    ch_data = channels[target_channel_id]
+    ch_name = ch_data.get('name', target_channel_id)
+    ch_caption = ch_data.get('caption', "")
+
+    # Loading ပြမည်
+    bot.edit_message_text(f"🚀 `{ch_name}` သို့ ပို့ဆောင်နေပါပြီ... စောင့်ဆိုင်းပေးပါ...", chat_id=chat_id, message_id=call.message.message_id)
+
+    success_count = 0
+    for msg in messages:
+        try:
+            # Caption တွဲခြင်း Logic
+            if len(messages) == 1 and user_text is not None:
+                base_text = user_text # Single file အတွက် user ရိုက်တဲ့စာ
+            else:
+                base_text = msg.caption if msg.caption else "" # Batch အတွက် မူလ caption
+
+            # Channel ရဲ့ Custom Caption နဲ့ ပေါင်းမည်
+            final_caption = f"{base_text}\n\n{ch_caption}" if ch_caption else base_text
+            final_caption = final_caption.strip()[:1024] # Telegram ၏ Limit သို့ ဖြတ်မည်
+
+            bot.copy_message(chat_id=target_channel_id, from_chat_id=msg.chat.id, message_id=msg.message_id, caption=final_caption)
+            success_count += 1
+            time.sleep(1.5) # Telegram Limit မထိအောင် နားမည်
+        except Exception as e:
+            bot.send_message(chat_id, f"❌ မပို့နိုင်သောဖိုင် (ID: {msg.message_id}) - Error: {e}")
+
+    # ပို့ပြီးကြောင်း ပြမည်
+    bot.edit_message_text(f"✅ `{ch_name}` သို့ ဖိုင်ပေါင်း ({success_count}) ခု အောင်မြင်စွာ ပို့ဆောင်ပြီးပါပြီ။", chat_id=chat_id, message_id=call.message.message_id)
+    
+    # Temporary Data ရှင်းလင်းမည်
+    del pending_sends[chat_id]
 
 @bot.message_handler(content_types=['video', 'document', 'photo', 'text'])
 def receive_video(message):
@@ -729,6 +847,7 @@ def setup_bot_commands():
         BotCommand("invite", "သူငယ်ချင်းကို ဖိတ်ခေါ်ြီး အခမဲ့ သုံးခွင့်ရယူရန်"),
         BotCommand("redeem", "🪙 Coins များလဲလှယ်ရန်"),
         BotCommand("myinfo", "👤 မိမိ၏ အချက်အလက်နှင့် လက်ကျန်သက်တမ်းကြည့်ရန်"),
+        BotCommand("delchannel", "Channel ဖယ်ရှားရန်"),
         BotCommand("clearlogs", "Backup မှတ်တမ်းများကို ဖျက်ရန်")
     ]
     try:
