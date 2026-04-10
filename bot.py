@@ -22,6 +22,18 @@ db = client['telegram_bot_db']
 config_col = db['settings']    
 backup_logs = db['backup_logs']
 
+try:
+    # user_id, source_chat, target_chat, msg_id ၄ ခုစလုံးကို ပေါင်းပြီး ရှာဖွေမှုကို မြန်ဆန်စေရန်
+    backup_logs.create_index([
+        ("user_id", 1),
+        ("source_chat", 1),
+        ("target_chat", 1),
+        ("msg_id", 1)
+    ], name="fast_backup_check")
+    print("🚀 Database Indexing: Success (Ready to go!)")
+except Exception as e:
+    print(f"⚠️ Indexing Error: {e}")
+
 bot = telebot.TeleBot(BOT_TOKEN)
 
 # ==========================================
