@@ -118,9 +118,13 @@ def start_backup(message):
         skip_count = 0
         failed_ids = []
 
-        # User settings ကို database မှ တိုက်ရိုက်ယူခြင်း
+        # 🌟 Multi-Channel ထဲက Target Channel ၏ Caption ကို ဆွဲထုတ်ခြင်း
         cfg = get_user_config(user_id)
-        custom_txt = cfg.get('custom_caption')
+        channels = cfg.get('channels', {})
+        
+        custom_caption = None
+        if target_chat in channels and channels[target_chat].get('caption'):
+            custom_caption = channels[target_chat]['caption']
 
         for msg_id in range(start_id, end_id + 1):
             if is_already_backed_up(user_id, source_chat, target_chat, msg_id):
@@ -130,12 +134,22 @@ def start_backup(message):
             success = False
             for attempt in range(3):
                 try:
-                    bot.copy_message(
-                        chat_id=target_chat,
-                        from_chat_id=source_chat,
-                        message_id=msg_id,
-                        caption=custom_txt if custom_txt else None
-                    )
+                    if custom_caption:
+                        # Caption သတ်မှတ်ထားလျှင် အသစ်ဖြင့် အစားထိုးမည်
+                        bot.copy_message(
+                            chat_id=target_chat,
+                            from_chat_id=source_chat,
+                            message_id=msg_id,
+                            caption=custom_caption
+                        )
+                    else:
+                        # မသတ်မှတ်ထားလျှင် မူရင်းအတိုင်း အတိအကျ ကူးမည်
+                        bot.copy_message(
+                            chat_id=target_chat,
+                            from_chat_id=source_chat,
+                            message_id=msg_id
+                        )
+                        
                     log_backup(user_id, source_chat, target_chat, msg_id)
                     success_count += 1
                     success = True
@@ -148,7 +162,7 @@ def start_backup(message):
                         failed_ids.append(str(msg_id))
 
             if success:
-                time.sleep(2.5)
+                time.sleep(2.5) # Telegram Limit မထိအောင် နားခြင်း
             
             if (success_count + skip_count + fail_count) % 5 == 0:
                 try:
@@ -509,7 +523,7 @@ def show_user_profile(message):
     text += f"🆔 **User ID:** `{user_id}`\n"
     text += f"🔰 **Status:** {status_text}\n"
     text += f"⏳ **ကျန်ရှိသက်တမ်း:** {time_left_str}\n"
-    text += f"📌 **Target Channel:** `{channel_id}`\n\n"
+    text += f"📌 **Target Channels:** `{channels_count}` ခု သတ်မှတ်ထားပါသည်\n\n"
     
     text += "🎁 **Referral & Rewards**\n"
     text += "━━━━━━━━━━━━━━━━\n"
