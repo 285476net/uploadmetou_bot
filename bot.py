@@ -1,6 +1,7 @@
 import telebot
 import os
 import re
+import threading
 from flask import Flask
 from threading import Thread, Timer
 from telebot.types import BotCommand
@@ -54,10 +55,10 @@ def get_user_config(user_id):
 def update_user_setting(user_id, field, value):
     config_col.update_one({"_id": str(user_id)}, {"$set": {field: value}}, upsert=True)
 
-authorized_cache = {} # Set အစား Dictionary ပြောင်းလိုက်ပါသည်
+authorized_cache = {}
+cache_lock = threading.Lock()
 
 def load_authorized_users():
-    """Bot စတက်ချိန်တွင် Database မှ Authorized Users များကို Cache ထဲသို့ ဆွဲတင်ရန်"""
     global authorized_cache
     admin_cfg = get_user_config(ADMIN_ID)
     users = admin_cfg.get('authorized_users', {})
@@ -70,8 +71,9 @@ def load_authorized_users():
         config_col.update_one({"_id": str(ADMIN_ID)}, {"$set": {"authorized_users": users_dict}})
         users = users_dict
 
-    authorized_cache = {int(k): v for k, v in users.items()}
-    authorized_cache[ADMIN_ID] = None # Admin ကို အချိန်အကန့်အသတ်မရှိ သတ်မှတ်ရန်
+    with cache_lock: # တစ်ပြိုင်နက်တည်း Write လုပ်ခြင်းကို ကာကွယ်ရန်
+        authorized_cache = {int(k): v for k, v in users.items()}
+        authorized_cache[ADMIN_ID] = None 
     print(f"✅ Loaded {len(authorized_cache)} authorized users to cache.")
 
 # ==========================================
@@ -237,45 +239,39 @@ def ping_self():
             print(f"⚠️ Ping Error: {e}")
 
 def check_expired_users():
-    """အချိန်ပြည့်သွားသော User များကို အလိုအလျောက် Unauth လုပ်ပြီး Message ပို့ရန်"""
     while True:
-        time.sleep(60) # ၆၀ စက္ကန့် (၁ မိနစ်) တစ်ခါ စစ်ပါမယ်
+        time.sleep(60)
         current_time = time.time()
         expired_users = []
         
-        for uid, expiry in list(authorized_cache.items()):
-            if expiry is not None and current_time > expiry:
-                expired_users.append(uid)
+        # ၁။ သက်တမ်းကုန်ဆုံးသူများကို ရှာဖွေခြင်း (Read Lock)
+        with cache_lock:
+            for uid, expiry in authorized_cache.items():
+                if expiry is not None and current_time > expiry:
+                    expired_users.append(uid)
         
+        # ၂။ ရှာတွေ့သူများကို ဖယ်ထုတ်ခြင်း (Write Lock)
         for uid in expired_users:
-            # Cache ထဲမှ ဖယ်ထုတ်ရန်
-            del authorized_cache[uid]
+            with cache_lock:
+                if uid in authorized_cache:
+                    del authorized_cache[uid]
             
-            # Database မှ ဖယ်ထုတ်ရန်
+            # Database Update နှင့် Message ပို့ခြင်း (Lock အပြင်ဘက်မှာ လုပ်ရပါမယ်)
             config_col.update_one(
                 {"_id": str(ADMIN_ID)}, 
                 {"$unset": {f"authorized_users.{uid}": ""}}
             )
             
-            # User ထံသို့ သက်တမ်းကုန်ကြောင်း Message ပို့ရန်
             try:
                 bot.send_message(
                     uid, 
-                    "⚠️ **အသိပေးချက်**\n\nသင်၏ Bot အသုံးပြုခွင့် သက်တမ်းကုန်ဆုံးသွားပါပြီ။ ထပ်မံအသုံးပြုလိုပါက Admin @moviestoreadmin ထံ ဆက်သွယ်ပါ။", 
+                    "⚠️ **အသိပေးချက်**\n\nသင်၏ Bot အသုံးပြုခွင့် သက်တမ်းကုန်ဆုံးသွားပါပြီ။", 
                     parse_mode="Markdown"
                 )
+                bot.send_message(ADMIN_ID, f"🔄 User ID `{uid}` ကို Auto Unauth လုပ်လိုက်ပါပြီ။")
             except Exception as e:
-                print(f"Failed to send expiry msg to {uid}: {e}")
-            
-            # Admin ထံသို့ Report ပို့ရန်
-            try:
-                bot.send_message(
-                    ADMIN_ID, 
-                    f"🔄 User ID `{uid}` ရဲ့ သက်တမ်းကုန်သွားတဲ့အတွက် Auto Unauth လုပ်လိုက်ပါပြီ။"
-                )
-            except:
-                pass
-
+                print(f"Error notifying {uid}: {e}")
+                
 def keep_alive():
     # Server Run ဖို့ Thread
     t_server = Thread(target=run_http)
@@ -293,12 +289,13 @@ def keep_alive():
 # ==========================================
 
 def is_authorized(user_id):
-    if user_id not in authorized_cache:
-        return False
-    expiry = authorized_cache[user_id]
-    if expiry is not None and time.time() > expiry:
-        return False # သက်တမ်းကုန်နေရင် ခွင့်မပြုပါ
-    return True
+    with cache_lock: # ဖတ်နေတုန်း တခြား Thread က ပြင်လို့မရအောင် Lock ချထားမယ်
+        if user_id not in authorized_cache:
+            return False
+        expiry = authorized_cache[user_id]
+        if expiry is not None and time.time() > expiry:
+            return False
+        return True
 
 # REFERRAL SYSTEM LOGIC (COIN SYSTEM)
 # ==========================================
@@ -324,7 +321,8 @@ def process_referral(new_user_id, inviter_id, new_user_name):
     except: pass
             
     new_user_expiry = time.time() + (1 * 86400)
-    authorized_cache[new_user_id] = new_user_expiry
+    with cache_lock:
+        authorized_cache[new_user_id] = new_user_expiry
     config_col.update_one(
         {"_id": str(ADMIN_ID)}, 
         {"$set": {f"authorized_users.{new_user_id}": new_user_expiry}},
@@ -422,6 +420,9 @@ def redeem_coins(message):
         {"_id": str(ADMIN_ID)}, 
         {"$set": {f"authorized_users.{user_id}": new_expiry}}
     )
+
+    with cache_lock:
+        authorized_cache[user_id] = new_expiry
     
     bot.reply_to(message, f"✅ **အောင်မြင်ပါသည်။**\n\nCoins 🪙 ({days_to_add * cost_per_day}) ကို အသုံးပြုပြီး **{days_to_add} ရက်** စာ သက်တမ်းတိုးလိုက်ပါသည်။\n\n🪙 လက်ကျန် **{remaining_coins} Coins**")
 
@@ -608,8 +609,9 @@ def add_user(message):
             upsert=True
         )
 
-        # Cache ထဲသို့ အသစ်ထည့်ရန်
-        authorized_cache[new_user_id] = expiry_time 
+        with cache_lock:
+            authorized_cache[new_user_id] = expiry_time
+
 
         bot.reply_to(message, f"✅ User ID `{new_user_id}` ကို {days} ရက် အသုံးပြုခွင့်ပေးလိုက်ပါပြီ။")
     except Exception as e:
