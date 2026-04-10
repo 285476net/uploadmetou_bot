@@ -352,6 +352,8 @@ def process_referral(new_user_id, inviter_id, new_user_name):
 def send_welcome(message):
     user_id = message.from_user.id
     first_name = message.from_user.first_name
+
+    update_user_setting(user_id, "first_name", first_name)
     
     # --- Referral Link မှ ဝင်လာခြင်းရှိမရှိ စစ်ဆေးခြင်း ---
     parts = message.text.split()
@@ -693,30 +695,29 @@ def delete_custom_caption_text(message):
 def list_authorized_users(message):
     if message.from_user.id != ADMIN_ID: return
     
-    # ၁။ Lock ခံပြီး လက်ရှိ Cache ထဲက Data တွေကို Snapshot ရယူမယ်
     with cache_lock:
         current_users = dict(authorized_cache) 
     
-    # ၂။ အောက်က အလုပ်တွေအားလုံးကို Snapshot (current_users) နဲ့ပဲ လုပ်တော့မယ်
-    total_users = len(current_users) - 1
-    text = f"👥 **Authorized Users Total: {total_users}**\n"
+    text = f"👥 **Authorized Users Total: {len(current_users) - 1}**\n"
     text += "━━━━━━━━━━━━━━━━\n"
     current_time = time.time()
     
-    # ⚠️ အရေးကြီး - ဒီနေရာမှာ current_users.items() ကိုပဲ သုံးရပါမယ်
     for uid, expiry in current_users.items():
         if uid == ADMIN_ID: continue
         
+        # ... သက်တမ်းတွက်ချက်သည့် logic ...
         time_left_str = "Unlimited"
         if expiry is not None:
             days_left = max(0, (expiry - current_time) / 86400)
             time_left_str = f"{days_left:.1f} Days Left"
             
+        # 🚀 ဒီအပိုင်းကို ပြင်ဆင်လိုက်ပါ
         try:
-            # User တစ်ယောက်ချင်းစီရဲ့ နာမည်ကို Telegram API ကနေ လှမ်းယူမယ်
-            user = bot.get_chat(uid)
-            text += f"👤 {user.first_name}\n🆔 `{uid}`\n⏳ {time_left_str}\n\n"
-        except:
+            # Telegram API ဆီ မသွားတော့ဘဲ Local DB ကနေ နာမည်ဆွဲထုတ်မယ်
+            user_data = get_user_config(uid)
+            name = user_data.get('first_name', "Unknown User")
+            text += f"👤 {name}\n🆔 `{uid}`\n⏳ {time_left_str}\n\n"
+        except Exception:
             text += f"👤 Unknown User\n🆔 `{uid}`\n⏳ {time_left_str}\n\n"
             
     bot.reply_to(message, text, parse_mode="Markdown")
