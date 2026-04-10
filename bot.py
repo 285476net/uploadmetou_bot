@@ -458,6 +458,58 @@ def execute_broadcast(broadcast_msg):
         bot.send_message(ADMIN_ID, final_report, parse_mode="Markdown")
     except: pass
 
+# ==========================================
+# USER PROFILE & STATUS
+# ==========================================
+@bot.message_handler(commands=['myinfo', 'profile'])
+def show_user_profile(message):
+    user_id = message.from_user.id
+    first_name = message.from_user.first_name
+
+    user_data = get_user_config(user_id)
+    ref_count = user_data.get('referral_count', 0)
+    coins = user_data.get('coins', 0)
+    channel_id = user_data.get('channel_id', 'မသတ်မှတ်ရသေးပါ')
+
+    # Status နှင့် ကျန်ရှိသက်တမ်းကို တွက်ချက်ခြင်း
+    status_text = "❌ အသုံးပြုခွင့် မရှိပါ"
+    time_left_str = "-"
+
+    if user_id == ADMIN_ID:
+        status_text = "👑 Admin"
+        time_left_str = "Unlimited (အချိန်အကန့်အသတ်မရှိ)"
+    elif is_authorized(user_id):
+        status_text = "✅ အသုံးပြုခွင့် ရရှိထားပါသည်"
+        expiry = authorized_cache.get(user_id)
+        if expiry:
+            current_time = time.time()
+            time_left_seconds = expiry - current_time
+            if time_left_seconds > 0:
+                # စက္ကန့်ကို ရက်အဖြစ် ပြောင်းလဲခြင်း
+                days_left = time_left_seconds / 86400
+                time_left_str = f"{days_left:.1f} ရက်"
+            else:
+                time_left_str = "သက်တမ်းကုန်ဆုံးသွားပါပြီ"
+        else:
+            time_left_str = "Unlimited (အချိန်အကန့်အသတ်မရှိ)"
+
+    # Message ပုံစံဖန်တီးခြင်း
+    text = f"👤 **{first_name} ၏ အချက်အလက်များ**\n"
+    text += "━━━━━━━━━━━━━━━━\n"
+    text += f"🆔 **User ID:** `{user_id}`\n"
+    text += f"🔰 **Status:** {status_text}\n"
+    text += f"⏳ **ကျန်ရှိသက်တမ်း:** {time_left_str}\n"
+    text += f"📌 **Target Channel:** `{channel_id}`\n\n"
+    
+    text += "🎁 **Referral & Rewards**\n"
+    text += "━━━━━━━━━━━━━━━━\n"
+    text += f"👥 **ဖိတ်ခေါ်ထားသူ:** {ref_count} ယောက်\n"
+    text += f"🪙 **လက်ကျန် Coins:** {coins} Coins\n\n"
+    
+    text += "💡 *မှတ်ချက် - Coins 50 ပြည့်တိုင်း /redeem ကိုနှိပ်၍ သက်တမ်း ၁ ရက် အခမဲ့ တိုးနိုင်ပါသည်။*"
+
+    bot.reply_to(message, text, parse_mode="Markdown")
+
 @bot.message_handler(commands=['setchannel'])
 def set_channel(message):
     user_id = message.from_user.id
@@ -676,6 +728,7 @@ def setup_bot_commands():
         BotCommand("delcaption", "ပုံသေစာသားကို ဖယ်ရှားရန်"),
         BotCommand("invite", "သူငယ်ချင်းကို ဖိတ်ခေါ်ြီး အခမဲ့ သုံးခွင့်ရယူရန်"),
         BotCommand("redeem", "🪙 Coins များလဲလှယ်ရန်"),
+        BotCommand("myinfo", "👤 မိမိ၏ အချက်အလက်နှင့် လက်ကျန်သက်တမ်းကြည့်ရန်"),
         BotCommand("clearlogs", "Backup မှတ်တမ်းများကို ဖျက်ရန်")
     ]
     try:
