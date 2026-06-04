@@ -777,6 +777,35 @@ def process_batch(chat_id, user_id):
 
     if chat_id in batch_data: del batch_data[chat_id]
 
+
+# ==========================================
+# VIP DOWNLOADER SETTINGS (NEW)
+# ==========================================
+@bot.message_handler(commands=['vipmode'])
+def toggle_vip_mode(message):
+    user_id = message.from_user.id
+    if not is_authorized(user_id): return
+    parts = message.text.split()
+    if len(parts) == 2 and parts[1].lower() in ['on', 'off']:
+        state = True if parts[1].lower() == 'on' else False
+        update_user_setting(user_id, "vip_mode", state)
+        bot.reply_to(message, f"✅ VIP Restricted Downloader Mode ကို **{'ဖွင့် (ON)' if state else 'ပိတ် (OFF)'}** လိုက်ပါပြီ။")
+    else:
+        bot.reply_to(message, "⚠️ Usage: `/vipmode on` သို့မဟုတ် `/vipmode off`")
+
+@bot.message_handler(commands=['setlimit'])
+def set_vip_limit(message):
+    user_id = message.from_user.id
+    if not is_authorized(user_id): return
+    parts = message.text.split()
+    if len(parts) == 2 and parts[1].isdigit():
+        limit = int(parts[1])
+        update_user_setting(user_id, "vip_limit", limit)
+        bot.reply_to(message, f"✅ VIP Member များအတွက် တစ်ရက်စာ Download Limit ကို **{limit}** ခု သတ်မှတ်လိုက်ပါပြီ။")
+    else:
+        bot.reply_to(message, "⚠️ Usage: `/setlimit 20`")
+        
+
 @bot.message_handler(func=lambda m: m.chat.id in pending_files, content_types=['text'])
 def receive_caption(message):
     user_id = message.from_user.id
@@ -908,33 +937,6 @@ def setup_bot_commands():
         print("✅ Bot menu commands successfully configured.")
     except Exception as e:
         print(f"⚠️ Failed to set bot commands: {e}")
-
-# ==========================================
-# VIP DOWNLOADER SETTINGS (NEW)
-# ==========================================
-@bot.message_handler(commands=['vipmode'])
-def toggle_vip_mode(message):
-    user_id = message.from_user.id
-    if not is_authorized(user_id): return
-    parts = message.text.split()
-    if len(parts) == 2 and parts[1].lower() in ['on', 'off']:
-        state = True if parts[1].lower() == 'on' else False
-        update_user_setting(user_id, "vip_mode", state)
-        bot.reply_to(message, f"✅ VIP Restricted Downloader Mode ကို **{'ဖွင့် (ON)' if state else 'ပိတ် (OFF)'}** လိုက်ပါပြီ။")
-    else:
-        bot.reply_to(message, "⚠️ Usage: `/vipmode on` သို့မဟုတ် `/vipmode off`")
-
-@bot.message_handler(commands=['setlimit'])
-def set_vip_limit(message):
-    user_id = message.from_user.id
-    if not is_authorized(user_id): return
-    parts = message.text.split()
-    if len(parts) == 2 and parts[1].isdigit():
-        limit = int(parts[1])
-        update_user_setting(user_id, "vip_limit", limit)
-        bot.reply_to(message, f"✅ VIP Member များအတွက် တစ်ရက်စာ Download Limit ကို **{limit}** ခု သတ်မှတ်လိုက်ပါပြီ။")
-    else:
-        bot.reply_to(message, "⚠️ Usage: `/setlimit 20`")
 
 if __name__ == "__main__":
     load_authorized_users()
