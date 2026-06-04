@@ -9,6 +9,7 @@ from telebot.types import BotCommand, InlineKeyboardMarkup, InlineKeyboardButton
 import time
 from pymongo import MongoClient
 import requests
+import vip_features
 
 # ==========================================
 # CONFIGURATION & DATABASE CONNECTION
@@ -354,6 +355,14 @@ def send_welcome(message):
     first_name = message.from_user.first_name
 
     update_user_setting(user_id, "first_name", first_name)
+
+    # --- VIP Downloader Link မှ ဝင်လာခြင်းရှိမရှိ စစ်ဆေးခြင်း ---
+    parts = message.text.split()
+    if len(parts) > 1 and parts[1].startswith('getfile_'):
+        file_id = parts[1].replace('getfile_', '')
+        vip_features.handle_vip_download(message, file_id)
+        return  # အောက်က Welcome စာသားတွေ ဆက်မပြတော့ရန် return ပြန်မည်
+    # --------------------------------------------------------
     
     # --- Referral Link မှ ဝင်လာခြင်းရှိမရှိ စစ်ဆေးခြင်း ---
     parts = message.text.split()
@@ -828,7 +837,14 @@ def handle_channel_selection(call):
             final_caption = f"{base_text}\n\n{ch_caption}" if ch_caption else base_text
             final_caption = final_caption.strip()[:1024] # Telegram ၏ Limit သို့ ဖြတ်မည်
 
-            bot.copy_message(chat_id=target_channel_id, from_chat_id=msg.chat.id, message_id=msg.message_id, caption=final_caption)
+            # ----- ယခုအသစ်ထည့်လိုက်သော VIP Code Block -----
+            if vip_features.is_vip_mode_on(user_id):
+                vip_features.process_vip_send(user_id, target_channel_id, msg, final_caption)
+            else:
+                # မူရင်း ပုံမှန် ပို့သောပုံစံ (VIP Mode ပိတ်ထားလျှင်)
+                bot.copy_message(chat_id=target_channel_id, from_chat_id=msg.chat.id, message_id=msg.message_id, caption=final_caption)
+            # ---------------------------------------------
+
             success_count += 1
             time.sleep(1.5) # Telegram Limit မထိအောင် နားမည်
         except Exception as e:
@@ -893,9 +909,37 @@ def setup_bot_commands():
     except Exception as e:
         print(f"⚠️ Failed to set bot commands: {e}")
 
+# ==========================================
+# VIP DOWNLOADER SETTINGS (NEW)
+# ==========================================
+@bot.message_handler(commands=['vipmode'])
+def toggle_vip_mode(message):
+    user_id = message.from_user.id
+    if not is_authorized(user_id): return
+    parts = message.text.split()
+    if len(parts) == 2 and parts[1].lower() in ['on', 'off']:
+        state = True if parts[1].lower() == 'on' else False
+        update_user_setting(user_id, "vip_mode", state)
+        bot.reply_to(message, f"✅ VIP Restricted Downloader Mode ကို **{'ဖွင့် (ON)' if state else 'ပိတ် (OFF)'}** လိုက်ပါပြီ။")
+    else:
+        bot.reply_to(message, "⚠️ Usage: `/vipmode on` သို့မဟုတ် `/vipmode off`")
+
+@bot.message_handler(commands=['setlimit'])
+def set_vip_limit(message):
+    user_id = message.from_user.id
+    if not is_authorized(user_id): return
+    parts = message.text.split()
+    if len(parts) == 2 and parts[1].isdigit():
+        limit = int(parts[1])
+        update_user_setting(user_id, "vip_limit", limit)
+        bot.reply_to(message, f"✅ VIP Member များအတွက် တစ်ရက်စာ Download Limit ကို **{limit}** ခု သတ်မှတ်လိုက်ပါပြီ။")
+    else:
+        bot.reply_to(message, "⚠️ Usage: `/setlimit 20`")
+
 if __name__ == "__main__":
     load_authorized_users()
     setup_bot_commands()
+    vip_features.init(bot, db)
     keep_alive()
     print("🤖 Bot Started with MongoDB Support...")
     bot.infinity_polling()
