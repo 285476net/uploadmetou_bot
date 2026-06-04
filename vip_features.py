@@ -17,6 +17,13 @@ def init(main_bot, main_db):
     vip_files = db['vip_files']
     vip_users = db['vip_downloads']
     settings = db['settings']
+    
+    # 🚀 Data Indexing ပြုလုပ်ခြင်း (Data များလာလျှင် မနှေးစေရန်)
+    try:
+        vip_files.create_index([("file_id", 1)], name="fast_vip_lookup", unique=True)
+        print("🚀 VIP Database Indexing: Success")
+    except Exception as e:
+        print(f"⚠️ VIP Indexing Error: {e}")
 
 def is_vip_mode_on(user_id):
     cfg = settings.find_one({"_id": str(user_id)})
@@ -27,8 +34,8 @@ def get_daily_limit(admin_id):
     return cfg.get("vip_limit", 10) if cfg else 10
 
 def process_vip_send(user_id, target_channel_id, msg, final_caption):
-    """Target Channel သို့ လင့်ခ်ဖြင့်တွဲ၍ ပို့ခြင်း"""
-    file_id = str(uuid.uuid4())[:8] # ကျပန်း ID အတိုထုတ်ခြင်း
+    """Target Channel သို့ Button ဖြင့်တွဲ၍ ပို့ခြင်း"""
+    file_id = str(uuid.uuid4())[:8] 
     bot_info = bot.get_me()
     deep_link = f"https://t.me/{bot_info.username}?start=getfile_{file_id}"
     
@@ -42,14 +49,22 @@ def process_vip_send(user_id, target_channel_id, msg, final_caption):
         "caption": final_caption
     })
     
-    # Channel သို့ ပို့မည့် စာသား
-    vip_caption = f"{final_caption}\n\n📥 **Download & Save:**\n{deep_link}"
-    vip_caption = vip_caption.strip()[:1024]
+    # 🔘 Inline Button ဖန်တီးခြင်း
+    markup = InlineKeyboardMarkup()
+    btn = InlineKeyboardButton(text="📥 Download & Save", url=deep_link)
+    markup.add(btn)
     
-    bot.copy_message(chat_id=target_channel_id, from_chat_id=msg.chat.id, message_id=msg.message_id, caption=vip_caption)
+    # Channel သို့ ပို့သည့်အခါ စာသားအောက်တွင် Button တွဲ၍ ပို့မည်
+    bot.copy_message(
+        chat_id=target_channel_id, 
+        from_chat_id=msg.chat.id, 
+        message_id=msg.message_id, 
+        caption=final_caption, 
+        reply_markup=markup
+    )
 
 def handle_vip_download(message, file_id):
-    """User က Link ကို နှိပ်ပြီး ဝင်လာသောအခါ အလုပ်လုပ်မည့်အပိုင်း"""
+    """User က Button လင့်ခ်ကို နှိပ်ပြီး ဝင်လာသောအခါ အလုပ်လုပ်မည့်အပိုင်း"""
     downloader_id = message.from_user.id
     
     # ၁။ ဖိုင်ကို Database တွင် ရှာခြင်း
@@ -82,7 +97,7 @@ def handle_vip_download(message, file_id):
     daily_limit = get_daily_limit(owner_id)
     
     if current_count >= daily_limit:
-        bot.send_message(downloader_id, f"⚠️ **Limit Reached**\n\nသင်၏ တစ်ရက်စာ Download အကြိမ်ရေ ({daily_limit}) ပြည့်သွားပါပြီ။ မနက်ဖြန်မှ ထပ်မံရယူပါ။")
+        bot.send_message(downloader_id, f"⚠️Limit Reached! Try again after 24hours.")
         return
         
     # ၄။ ဖိုင်ပေးပို့ခြင်း
@@ -91,7 +106,7 @@ def handle_vip_download(message, file_id):
             chat_id=downloader_id, 
             from_chat_id=file_data['source_chat'], 
             message_id=file_data['msg_id'], 
-            caption=file_data['caption'] # မူရင်း သတ်မှတ်ထားသော Custom Caption ဖြင့်ပို့မည်
+            caption=file_data['caption'] 
         )
         
         # Limit Count တိုးခြင်း
