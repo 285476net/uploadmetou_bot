@@ -222,6 +222,30 @@ def clear_backup_logs(message):
         backup_logs.delete_many({"user_id": str(user_id)})
         bot.reply_to(message, "🗑 Your backup logs have been cleared.")
 
+
+@bot.message_handler(commands=['clearvipfiles'])
+def clear_vip_files_command(message):
+    # Admin တစ်ဦးတည်းသာ ဖျက်ပိုင်ခွင့်ရှိစေရန် စစ်ဆေးခြင်း
+    if message.from_user.id != ADMIN_ID: 
+        return
+    
+    try:
+        # ဖျက်မည့် ဖိုင်အရေအတွက်ကို အရင်ရေတွက်မည်
+        count = vip_features.vip_files.count_documents({})
+        
+        # Collection ထဲရှိ ဒေတာအားလုံးကို ဖျက်မည်
+        vip_features.vip_files.delete_many({})
+        
+        text = (
+            f"🗑 **VIP Database ရှင်းလင်းခြင်း ပြီးဆုံးပါပြီ။**\n\n"
+            f"မှတ်တမ်းစုစုပေါင်း **({count})** ခုကို ဖျက်ပစ်လိုက်ပါသည်။\n\n"
+            f"⚠️ *မှတ်ချက် - ယခင်တင်ထားသော Post များမှ Download Button များအားလုံး ယခုအချိန်မှစ၍ အလုပ်လုပ်တော့မည် မဟုတ်ပါ။*"
+        )
+        bot.reply_to(message, text, parse_mode="Markdown")
+    except Exception as e:
+        bot.reply_to(message, f"❌ ရှင်းလင်းရာတွင် Error ဖြစ်ပေါ်ခဲ့ပါသည်: {e}")
+        
+
 # WEB SERVER & SELF PING
 # ==========================================
 app = Flask('')
