@@ -51,7 +51,7 @@ def process_vip_send(user_id, target_channel_id, msg, final_caption):
     
     # 🔘 Inline Button ဖန်တီးခြင်း
     markup = InlineKeyboardMarkup()
-    btn = InlineKeyboardButton(text="📥 Get Donwload File", url=deep_link)
+    btn = InlineKeyboardButton(text="📥 Get Download File", url=deep_link)
     markup.add(btn)
     
     # Channel သို့ ပို့သည့်အခါ စာသားအောက်တွင် Button တွဲ၍ ပို့မည်
