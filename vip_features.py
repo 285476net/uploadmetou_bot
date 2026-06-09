@@ -51,7 +51,7 @@ def process_vip_send(user_id, target_channel_id, msg, final_caption):
     
     # 🔘 Inline Button ဖန်တီးခြင်း
     markup = InlineKeyboardMarkup()
-    btn = InlineKeyboardButton(text="📥 Download & Save", url=deep_link)
+    btn = InlineKeyboardButton(text="📥 Get Donwload File", url=deep_link)
     markup.add(btn)
     
     # Channel သို့ ပို့သည့်အခါ စာသားအောက်တွင် Button တွဲ၍ ပို့မည်
@@ -80,10 +80,10 @@ def handle_vip_download(message, file_id):
     try:
         member = bot.get_chat_member(chat_id=channel_id, user_id=downloader_id)
         if member.status not in ['member', 'administrator', 'creator']:
-            bot.send_message(downloader_id, "🚫 **Access Denied**\n\nသင်ဟာ ဤ Channel ၏ Premium VIP Member မဟုတ်သည့်အတွက် ဖိုင်ကို ရယူခွင့်မရှိပါ။")
+            bot.send_message(downloader_id, "❌ Access Denied\n\nသင်ဟာ VIP ဝယ်ယူထားခြင်းမရှိသည့်အတွက် ဖိုင်ကို ရယူခွင့်မရှိပါ။")
             return
     except Exception as e:
-        bot.send_message(downloader_id, "🚫 **Access Denied**\n\nသင်ဟာ Premium VIP Member မဟုတ်ကြောင်း တွေ့ရှိရပါသည်။")
+        bot.send_message(downloader_id, "🚫 Access Denied\n\nသင်ဟာ Premium VIP Member မဟုတ်ကြောင်း တွေ့ရှိရပါသည်။")
         return
         
     # ၃။ Daily Limit စစ်ဆေးခြင်း
